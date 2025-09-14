@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TiTaPa Remote - تحكم بالتلفاز</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #1e40af;
+            --dark: #0f172a;
+            --light: #f8fafc;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            background: linear-gradient(135deg, var(--dark), #1e293b);
+            color: var(--light);
+            min-height: 100vh;
+            touch-action: none;
+        }
+        
+        .container {
+            padding: 1rem;
+            max-width: 100%;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 1rem 0;
+            margin-bottom: 1rem;
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, var(--primary), #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .connection-panel {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1rem;
+            border-radius: 15px;
+            margin-bottom: 1rem;
+            backdrop-filter: blur(10px);
+        }
+        
+        .ip-input {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .ip-input input {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+        }
+        
+        .connect-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 10px;
+            margin: 1rem 0;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+        
+        .status-dot.connected {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .touch-pad {
+            width: 100%;
+            height: 40vh;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            margin: 1rem 0;
+            touch-action: none;
+            position: relative;
+        }
+        
+        .touch-indicator {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: rgba(59, 130, 246, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            opacity: 0;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .control-btn {
+            padding: 1rem;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .control-btn:active {
+            transform: scale(0.95);
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 تحكم بالتلفاز</h1>
+            <p>استخدم هاتفك للتحكم في شاشة التلفاز</p>
+        </div>
+        
+        <div class="connection-panel">
+            <div class="ip-input">
+                <input type="text" id="tvIP" placeholder="أدخل IP التلفاز" value="">
+                <button class="connect-btn" onclick="connectToTV()">اتصال</button>
+            </div>
+            
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">غير متصل</span>
+            </div>
+        </div>
+        
+        <div class="touch-pad" id="touchPad">
+            <div class="touch-indicator" id="touchIndicator"></div>
+        </div>
+        
+        <div class="controls">
+            <button class="control-btn" ontouchstart="sendAction('click', 'left')">
+                🖱️ نقر يسار
+            </button>
+            <button class="control-btn" ontouchstart="sendAction('click', 'right')">
+                🖱️ نقر يمين
+            </button>
+            <button class="control-btn" ontouchstart="sendAction('key', 'Enter')">
+                ↵ Enter
+            </button>
+            <button class="control-btn" ontouchstart="sendAction('key', 'Escape')">
+                ⎋ Escape
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // حالة التطبيق
+        const appState = {
+            connected: false,
+            tvIP: '',
+            isDragging: false
+        };
+
+        // عناصر DOM
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const tvIPInput = document.getElementById('tvIP');
+        const touchPad = document.getElementById('touchPad');
+        const touchIndicator = document.getElementById('touchIndicator');
+
+        // تهيئة التطبيق
+        function initApp() {
+            setupTouchPad();
+            loadSavedTVIP();
+        }
+
+        // تحميل IP التلفاز المحفوظ
+        function loadSavedTVIP() {
+            const savedIP = localStorage.getItem('tvIP');
+            if (savedIP) {
+                tvIPInput.value = savedIP;
+                appState.tvIP = savedIP;
+            }
+        }
+
+        // الاتصال بالتلفاز
+        function connectToTV() {
+            const ip = tvIPInput.value.trim();
+            if (!ip) {
+                showAlert('⚠️ الرجاء إدخال IP التلفاز');
+                return;
+            }
+
+            appState.tvIP = ip;
+            localStorage.setItem('tvIP', ip);
+
+            // محاكاة الاتصال
+            simulateTVConnection();
+        }
+
+        // محاكاة الاتصال بالتلفاز
+        function simulateTVConnection() {
+            showAlert('📺 جاري الاتصال بالتلفاز...');
+            updateConnectionStatus('connecting');
+
+            setTimeout(() => {
+                appState.connected = true;
+                updateConnectionStatus('connected');
+                showAlert('✅ تم الاتصال بالتلفاز بنجاح!');
+            }, 2000);
+        }
+
+        // تحديث حالة الاتصال
+        function updateConnectionStatus(status) {
+            switch(status) {
+                case 'connected':
+                    statusDot.classList.add('connected');
+                    statusText.textContent = 'متصل بالتلفاز';
+                    appState.connected = true;
+                    break;
+                case 'connecting':
+                    statusDot.style.background = '#f59e0b';
+                    statusText.textContent = 'جاري الاتصال...';
+                    break;
+                default:
+                    statusDot.classList.remove('connected');
+                    statusText.textContent = 'غير متصل';
+                    appState.connected = false;
+            }
+        }
+
+        // إعداد لوحة اللمس
+        function setupTouchPad() {
+            let isTouching = false;
+            let startX, startY;
+
+            touchPad.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                isTouching = true;
+                appState.isDragging = true;
+                const touch = e.touches[0];
+                startX = touch.clientX;
+                startY = touch.clientY;
+                showTouchEffect(touch);
+                
+                if (appState.connected) {
+                    sendTouchStart(touch);
+                }
+            });
+
+            touchPad.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (isTouching && appState.connected) {
+                    const touch = e.touches[0];
+                    sendTouchMove(touch, startX, startY);
+                }
+            });
+
+            touchPad.addEventListener('touchend', () => {
+                isTouching = false;
+                appState.isDragging = false;
+                
+                if (appState.connected) {
+                    sendTouchEnd();
+                }
+            });
+        }
+
+        // تأثير اللمس
+        function showTouchEffect(touch) {
+            const rect = touchPad.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            touchIndicator.style.left = `${x}px`;
+            touchIndicator.style.top = `${y}px`;
+            touchIndicator.style.opacity = '1';
+        }
+
+        // إرسال بدء اللمس
+        function sendTouchStart(touch) {
+            const rect = touchPad.getBoundingClientRect();
+            const x = (touch.clientX - rect.left) / rect.width;
+            const y = (touch.clientY - rect.top) / rect.height;
+            
+            console.log('بدء اللمس:', { x, y });
+            // هنا ستقوم بإرسال البيانات إلى التلفاز
+        }
+
+        // إرسال حركة اللمس
+        function sendTouchMove(touch, startX, startY) {
+            const rect = touchPad.getBoundingClientRect();
+            const x = (touch.clientX - rect.left) / rect.width;
+            const y = (touch.clientY - rect.top) / rect.height;
+            const deltaX = touch.clientX - startX;
+            const deltaY = touch.clientY - startY;
+            
+            console.log('حركة الماوس:', { x, y, deltaX, deltaY });
+            // إرسال إحداثيات الحركة إلى التلفاز
+        }
+
+        // إرسال نهاية اللمس
+        function sendTouchEnd() {
+            console.log('نهاية اللمس');
+            touchIndicator.style.opacity = '0';
+        }
+
+        // إرسال action إلى التلفاز
+        function sendAction(type, value) {
+            if (!appState.connected) {
+                showAlert('⚠️ يرجى الاتصال بالتلفاز أولاً');
+                return;
+            }
+
+            console.log('إرسال action:', { type, value });
+            
+            if (type === 'click') {
+                showAlert(`🖱️ تم النقر بالزر ${value === 'left' ? 'الأيسر' : 'الأيمن'}`);
+            } else if (type === 'key') {
+                showAlert(`⌨️ تم الضغط على مفتاح: ${value}`);
+            }
+        }
+
+        // عرض التنبيهات
+        function showAlert(message) {
+            // تنفيذ عرض تنبيه بسيط
+            alert(message);
+        }
+
+        // تهيئة التطبيق
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
